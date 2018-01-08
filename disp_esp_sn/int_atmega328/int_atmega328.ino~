@@ -1,0 +1,340 @@
+#include <DHT.h>
+#include <Wire.h>
+#include <BH1750.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BMP085.h>
+
+//определяем пины SPI
+#define MOSI_PIN 11
+#define MISO_PIN 12
+#define SCK_PIN  13
+#define SS_PIN 10
+#define A_MQV A0
+#define A_MQ1 A1
+#define A_MQ2 A2
+#define A_VIN A3
+#define DHT21_PIN 5
+
+
+DHT dht (DHT21_PIN, DHT21);
+BH1750 lightMeter (0x23);
+Adafruit_BMP085 bmp;
+
+//определяем переменную для получаемого байта
+byte recievedByte;
+
+double GetTemp (void);
+long readVcc (void);
+double GetCharge (double voltage);
+
+bool bmp_f = 1;
+double vcc = 0, MQ_vcc = 0, lux = 0, hum_dht = 0, temp_dht = 0, vin =
+  0, pre_bmp = 0, temp_bmp = 0, mq1 = 0, mq2 = 0, mctmp = 0;
+
+double
+get_scs (double *mas, int rnd)
+{
+  double res = 0;
+  for (int i = 0; i <= rnd; i++)
+    {
+      res += mas[i];
+    }
+  return res;
+}
+
+long ltmp[5], rund = 0, loop_i = 0;
+bool loop_redy = 0;
+double dtmp[6];
+double rdtmp[11][20];
+
+void
+setup ()
+{
+  //обнуляем регистр управления SPI
+  //SPCR = B00000000;
+  //разрешаем работу SPI
+  //SPCR = (1<<SPE);
+  Serial.begin (9600);
+  Wire.begin ();
+  lightMeter.begin (BH1750_ONE_TIME_HIGH_RES_MODE_2);
+  if (!bmp.begin ())
+    {
+      bmp_f = 0;
+    }
+  dht.begin ();
+  //определяем пины для работы с SPI
+  pinMode (MOSI_PIN, INPUT);
+  pinMode (MISO_PIN, OUTPUT);
+  pinMode (SCK_PIN, INPUT);
+  pinMode (SS_PIN, INPUT);
+  pinMode (9, OUTPUT);		//ENABLE
+  pinMode (6, OUTPUT);		//RELAY CTR (HIGH 1.17 LOW 5) 
+  digitalWrite (9, HIGH);
+  digitalWrite (6, HIGH);
+
+  ltmp[0] = 0;
+  ltmp[1] = 0;
+  ltmp[2] = 0;
+  ltmp[3] = 0;
+  ltmp[4] = 0;
+  dtmp[0] = 0;
+  dtmp[1] = 0;
+  dtmp[2] = 0;
+  dtmp[3] = 0;
+  dtmp[4] = 0;
+  dtmp[5] = 0;
+}
+
+
+void
+loop ()
+{
+  ltmp[0] += readVcc ();
+  ltmp[1] += analogRead (A_MQV);
+  ltmp[2] += analogRead (A_MQ1);
+  ltmp[3] += analogRead (A_MQ2);
+  ltmp[4] += analogRead (A_VIN);
+  dtmp[0] += GetTemp ();
+  dtmp[1] += lightMeter.readLightLevel ();
+  dtmp[2] += dht.readHumidity ();
+  dtmp[3] += dht.readTemperature ();
+  if (bmp_f == 1)
+    {
+      dtmp[4] += bmp.readTemperature ();
+      dtmp[5] += bmp.readPressure () / 133.322;
+    }
+  rund++;
+  delay (250);
+  if (rund >= 120)
+    {
+      rdtmp[0][loop_i] = (ltmp[0] / 120) / 1000;	//MCVCC
+      rdtmp[1][loop_i] = ((ltmp[1] / 120) / 1023.0) * rdtmp[loop_i][0];	//MQVCC
+      rdtmp[2][loop_i] = ((ltmp[2] / 120) / 1023.0) * rdtmp[loop_i][0];	//MQ1
+      rdtmp[3][loop_i] = ((ltmp[3] / 120) / 1023.0) * rdtmp[loop_i][0];	//MQ2
+      rdtmp[4][loop_i] = ((ltmp[4] / 120) / 1023.0) * rdtmp[loop_i][0] * 10.8;	//VIN
+      rdtmp[5][loop_i] = (dtmp[0] / 120);	//MCTMP
+      rdtmp[6][loop_i] = (dtmp[1] / 120);	//LUX
+      rdtmp[7][loop_i] = (dtmp[2] / 120);	//DHUM
+      rdtmp[8][loop_i] = (dtmp[3] / 120);	//DTMP
+      if (bmp_f == 1)
+	{
+	  rdtmp[9][loop_i] = (dtmp[4] / 120);	//BTMP
+	  rdtmp[10][loop_i] = (dtmp[5] / 120);	//BPRE
+	}
+      ltmp[0] = 0;
+      ltmp[1] = 0;
+      ltmp[2] = 0;
+      ltmp[3] = 0;
+      ltmp[4] = 0;
+      dtmp[0] = 0;
+      dtmp[1] = 0;
+      dtmp[2] = 0;
+      dtmp[3] = 0;
+      dtmp[4] = 0;
+      dtmp[5] = 0;
+      rund = 0;
+      if (loop_i >= 20)
+	{
+	  loop_redy = 1;
+	  loop_i = 0;
+	}
+      loop_i++;
+    }
+
+  if (Serial.available () > 0)
+    {
+      if (Serial.read () == '\n')
+		{
+	  String tempstr;
+	  if (loop_redy == 1)
+	    {
+	      vcc = get_scs (rdtmp[0], 20);
+	      MQ_vcc = get_scs (rdtmp[1], 20);
+	      mq1 = get_scs (rdtmp[2], 20);
+	      mq2 = get_scs (rdtmp[3], 20);
+	      vin = get_scs (rdtmp[4], 20);
+	      mctmp = get_scs (rdtmp[5], 20);
+
+
+	      tempstr =
+		String ("MQV:") + MQ_vcc + String (" VMQ1:") + mq1 +
+		String (" VMQ2:") + mq2;
+	      Serial.print (tempstr);
+
+	      tempstr =
+		String (" VIN:") + vin + String (" MCVCC:") + vcc +
+		String (" MCTMP:") + mctmp;
+	      Serial.print (tempstr);
+
+	      lux = get_scs (rdtmp[6], 20);
+	      tempstr = String (" LUX:") + lux;
+
+
+	      hum_dht = get_scs (rdtmp[7], 20);
+	      temp_dht = get_scs (rdtmp[8], 20);
+	      tempstr +=
+		String (" DHUM:") + hum_dht + String (" DTMP:") + temp_dht;
+	      Serial.print (tempstr);
+
+	      if (bmp_f == 1)
+		{
+		  temp_bmp = get_scs (rdtmp[9], 20);
+		  pre_bmp = get_scs (rdtmp[10], 20);
+		  tempstr =
+		    String (" BPRE:") + pre_bmp + String (" BTMP:") +
+		    temp_bmp;
+		  Serial.print (tempstr);
+		}
+	      tempstr = String (";\n");
+	      Serial.println (tempstr);
+	    }
+	} 
+	else if (Serial.read () == 'S')
+    {
+      byte error, address;
+      int nDevices;
+
+      Serial.println ("Scanning...");
+
+      nDevices = 0;
+      for (address = 1; address < 127; address++)
+	{
+	  // The i2c_scanner uses the return value of
+	  // the Write.endTransmisstion to see if
+	  // a device did acknowledge to the address.
+	  Wire.beginTransmission (address);
+	  error = Wire.endTransmission ();
+
+	  if (error == 0)
+	    {
+	      Serial.print ("I2C device found at address 0x");
+	      if (address < 16)
+		Serial.print ("0");
+	      Serial.print (address, HEX);
+	      Serial.println ("  !");
+
+	      nDevices++;
+	    }
+	  else if (error == 4)
+	    {
+	      Serial.print ("Unknown error at address 0x");
+	      if (address < 16)
+		Serial.print ("0");
+	      Serial.println (address, HEX);
+	    }
+	}
+      if (nDevices == 0)
+	Serial.println ("No I2C devices found\n");
+      else
+	Serial.println ("done\n");
+    }
+	  else
+	  {
+		Serial.println ("RDY=0;");
+	  }
+    }
+}
+
+/*
+void loop() {
+  //пока пин slave select опущен
+  while (digitalRead(SS_PIN)==LOW){
+    //принимаем байт и записываем его в переменную
+    recievedByte=spi_receive();
+    //смотрим в мониторе полученный байт
+    Serial.println(recievedByte,BIN);
+    //зажигаем светодиоды, которые соответствуют единицам в полученном байте
+    digitalWrite(2,recievedByte & (1 << 0));
+    digitalWrite(3,recievedByte & (1 << 1));
+    digitalWrite(4,recievedByte & (1 << 2));
+    digitalWrite(5,recievedByte & (1 << 3));
+    digitalWrite(6,recievedByte & (1 << 4));
+    digitalWrite(7,recievedByte & (1 << 5));
+    digitalWrite(8,recievedByte & (1 << 6));
+    digitalWrite(9,recievedByte & (1 << 7));
+  }
+}
+*/
+//функция для приема байта
+byte
+spi_receive ()
+{
+  //пока не выставлен флаг окончания передачи, принимаем биты
+  while (!(SPSR & (1 << SPIF)))
+    {
+    };
+  //позвращяем содержимое регистра данных SPI
+  return SPDR;
+}
+
+long
+readVcc ()
+{
+  // Read 1.1V reference against AVcc
+  // set the reference to Vcc and the measurement to the internal 1.1V reference
+#if defined(__AVR_ATmega32U4__) || defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
+  ADMUX = _BV (REFS0) | _BV (MUX4) | _BV (MUX3) | _BV (MUX2) | _BV (MUX1);
+#elif defined (__AVR_ATtiny24__) || defined(__AVR_ATtiny44__) || defined(__AVR_ATtiny84__)
+  ADMUX = _BV (MUX5) | _BV (MUX0);
+#else
+  ADMUX = _BV (REFS0) | _BV (MUX3) | _BV (MUX2) | _BV (MUX1);
+#endif
+
+  delay (2);			// Wait for Vref to settle
+  ADCSRA |= _BV (ADSC);		// Start conversion
+  while (bit_is_set (ADCSRA, ADSC));	// measuring
+
+  uint8_t low = ADCL;		// must read ADCL first - it then locks ADCH  
+  uint8_t high = ADCH;		// unlocks both
+
+  long result = (high << 8) | low;
+
+  result = 1125300L / result;	// Calculate Vcc (in mV); 1125300 = 1.1*1023*1000
+  return result;		// Vcc in millivolts
+}
+
+double
+GetCharge (double voltage)
+{
+  double charge = 0;
+  if (voltage > 13.2)
+    return 101;
+  if (voltage > 11)
+    {
+      voltage = voltage - 11;
+      charge = (voltage / 1.2) * 100;
+    }
+  return charge;
+}
+
+double
+GetTemp (void)
+{
+  unsigned int wADC;
+  double t;
+
+  // The internal temperature has to be used
+  // with the internal reference of 1.1V.
+  // Channel 8 can not be selected with
+  // the analogRead function yet.
+
+  // Set the internal reference and mux.
+  ADMUX = (_BV (REFS1) | _BV (REFS0) | _BV (MUX3));
+  ADCSRA |= _BV (ADEN);		// enable the ADC
+
+  delay (20);			// wait for voltages to become stable.
+
+  ADCSRA |= _BV (ADSC);		// Start the ADC
+
+  // Detect end-of-conversion
+  while (bit_is_set (ADCSRA, ADSC));
+
+  // Reading register "ADCW" takes care of how to read ADCL and ADCH.
+  wADC = ADCW;
+
+  // The offset of 324.31 could be wrong. It is just an indication.
+  t = (wADC - 324.31) / 1.22;
+
+  // The returned temperature is in degrees Celsius.
+  return (t);
+}
