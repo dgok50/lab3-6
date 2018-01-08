@@ -10,12 +10,12 @@
 #include <WiFiClient.h>
 #include <WiFiUdp.h>
 
-//#include <ESP8266AVRISP.h>
 #include "ShiftRegLCD123.h"
 #include <Ticker.h>
 
 #pragma GCC push_options
 #pragma GCC optimize ("O0")
+
 
 #define SECS_PER_MIN  (60UL)
 #define SECS_PER_HOUR (3600UL)
@@ -35,9 +35,9 @@
 const char *HOST_NAME = "DISP_ESP";
 const char *endl = "\n";
 const int fw_ver = 26;
-#define dataPin 12                                          // SR Data from Arduino pin 10
-#define clockPin 14                                         // SR Clock from Arduino pin 11
-#define enablePin 13                                        // LCD enable from Arduino pin 12
+#define dataPin 12                                          // SR Data from ESP pin 12
+#define clockPin 14                                         // SR Clock from ESP pin 14
+#define enablePin 13                                        // LCD enable from ESP pin 13
 
 #define numberOfSeconds(_time_) (_time_ % SECS_PER_MIN)  
 #define numberOfMinutes(_time_) ((_time_ / SECS_PER_MIN) % SECS_PER_MIN) 
@@ -52,22 +52,18 @@ Ticker data_collect, data_send_tic;
 
 const char *password = "012345780";
 
-//ESP8266AVRISP avrprog(328, 2);
 ESP8266WebServer server(80);
 ESP8266HTTPUpdateServer httpUpdater;
 
 float mqv=0, mq7=0, mq9=0, vin=0, mc_vcc=0, mc_temp=0, lux=0, esp_vcc=0, tmp=0, mqv5=0, mq9_5=0;
 float dht_temp=0, dht_hum=0, bmp_temp=0, bmp_pre=0, rdy=0, idht_temp=0, idht_hum=0, tidht_hum=0, tidht_temp=0;
 unsigned int loop_i = 0, i=0, loop_u = 0;
-//unsigned long loop_time=0, loop_time_new=0;
 unsigned long tfs = 0, timecor;
 volatile unsigned long rnd = 0, loop_g = 0;
 bool loop_redy = false;
-//short int send_errors=0; 
 volatile bool bmp_ok=false, lux_ok=false, dht_ok=false, data_rec=false, idht_ok=false;
 volatile bool ispmode = false, drq = false, send_data = false, repsend = false;
 volatile bool loop_en=true, selfup=false, lcdbackl=true, data_get=true, narodmon_send=false;
-//short int data_get=1, narodmon_send=1;
 char cstr1[BUF_SIZE], replyb[RBUF_SIZE], nreplyb[RBUF_SIZE], ctmp='\0';
 String wpass="84992434219", wname="A1 Net";
 char mac[22];
@@ -120,11 +116,6 @@ double get_scs(double *mas, int rr) { //функция усреднения ма
   return res/rr;
 }
 
-/*void avrisp() {
-avrprog.setReset(false);
-avrprog.begin();
-ispmode = true;
-}*/
 
 long get_signal_qua(long rfrom, long rto){
     long rssi = WiFi.RSSI();
@@ -149,11 +140,6 @@ const char *webPage ="<!DOCTYPE html>"
 "  <a href= \"/set?backlight=0\">Turn OFF backlight</a><br>\n"
 "  <a href= \"/set?backlight=1\">Turn ON backlight</a><br>\n"
 "  <a href= \"/set?format=243\">Reset default st</a><br>\n"
-//"  <a href= \"/set?avrisp_s=1\">Go to isp</a><br>\n"
-//"  <a href= \"/set?avr_reset=1\">Restart avr</a><br>\n"
-//"  <a href= \"/i2c_scan.txt\">I2C Scan</a><br>\n"
-//"  <a href= \"/serial_in.txt\">Get serial atmega data</a><br>\n"
-//"  <a href= \"/parse.txt\">Parse atmega data</a>\n"
 " </body>\n"
 "</html>\n";
 
@@ -163,12 +149,8 @@ void setup() {
 
     Serial.begin(9600);   
     Serial.println("A1 DISP_ESP_ST");
-    //pinMode(2, OUTPUT);
     pinMode(5, INPUT);
-    yield();/*
-    pinMode(dataPin, OUTPUT);
-    pinMode(clockPin, OUTPUT);
-    pinMode(enablePin, OUTPUT);*/
+    yield();
     bzero(cstr1, BUF_SIZE);
     bzero(replyb, RBUF_SIZE);
     for(int r=0;r<RCOL;r++){
@@ -178,14 +160,6 @@ void setup() {
     srlcd.clear();
     srlcd.setCursor(0,0);
     srlcd.print(HOST_NAME);
-    /*
-    srlcd.setCursor(10,0);
-    srlcd.command(0b00101010); // Set 1 code page
-    delay(1000);
-    srlcd.writecode(0xbe);
-    delay(1000);
-    srlcd.command(0b00101000); // Set 0 code page
-    srlcd.writecode(0xbe);*/
     srlcd.setCursor(0,1);
     Serial.println("Starting esp.");
     srlcd.print("Версия ");    
@@ -207,13 +181,9 @@ void setup() {
     srlcd.setCursor(7,1);
     srlcd.print(".");
     srlcd.backlightOn();
-    //delay(1000);
     srlcd.setCursor(OFFSET,0);
     srlcd.print("SPIFS");
     Serial.println("SPIFS");
-    //srlcd.setCursor(16,1);
-    //srlcd.print(".");
-    //Serial.println();
     
     if(ESP.getResetS() == false || digitalRead(5) == LOW)
     {
@@ -232,7 +202,6 @@ void setup() {
         SPIFFS.format();
         srlcd.setCursor(0,1);
         srlcd.print("Форматирование SPIFS");
-      //ESP.restart();
       }
 
     srlcd.setCursor(OFFSET,0);
@@ -241,7 +210,6 @@ void setup() {
     Serial.println("W СБРС");
     srlcd.setCursor(8,1);
     srlcd.print(".");
-    //avrprog.setReset(false); // let the AVR run
     yield();
 
     WiFi.disconnect();
@@ -268,7 +236,6 @@ void setup() {
     	    srlcd.print("НЕ ВОЗМОЖНО СОХР КОНФ");
             Serial.println("Failed to save config");
             SPIFFS.format();
-          //ESP.restart();
           } else {
     	      srlcd.setCursor(0,1);
     	      srlcd.print("УСП СОХР КОНФ");
@@ -387,12 +354,10 @@ void setup() {
         delay(1000);
       });
     server.on("/nreplyb.txt", []() {
-        //bzero(cstr1, 2048);
         server.send(200, "text/xhtml", nreplyb);
         delay(1000);
       });
     server.on("/replyb.txt", []() {
-        //bzero(cstr1, 2048);
         server.send(200, "text/xhtml", replyb);
         delay(1000);
       });
@@ -442,7 +407,6 @@ void setup() {
               }
           }
         if (server.arg("v_mode") != "") {
-            //saveConfig();
             WiFi.disconnect(false);
             WiFi.begin(wname.c_str(), wpass.c_str());
           }
@@ -458,7 +422,6 @@ void setup() {
         if (server.arg("backlight") != "") {
             lcdbacklset(atoi(server.arg("backlight").c_str()));
         }
-        //get_state(cstr1, 200);
         server.send(200, "text/html", webPage);
         delay(1000);
         saveConfig();
@@ -466,15 +429,6 @@ void setup() {
 
     server.begin();
     httpUpdater.setup(&server);
-    //avrprog.setReset(true); // reset AVR
-    //delay(500);
-    //avrprog.setReset(false);
-    /*
-    if(data_get==1) {
-    data_collect.attach(60, k_tdp);
-  }
-    data_send_tic.attach(300, data_send_f);*/
-    //starting data collecting
     srlcd.setCursor(OFFSET,0);
     srlcd.print("НОРМ РЕЖИМ");
     srlcd.setCursor(0,1);
@@ -484,20 +438,17 @@ void setup() {
     srlcd.print("Запуск ntp          ");
 
     WiFi.hostByName(ntpServerName, timeServerIP); 
-    sendNTPpacket(timeServerIP);                                // send an NTP packet to a time server
+    sendNTPpacket(timeServerIP);                                //Отправка NTP пакета на сервер
     delay(1000);
     int cb = udp.parsePacket();
     if (cb) {
         Serial.println("no packet yet");
-        udp.read(packetBuffer, NTP_PACKET_SIZE);                // read the packet into the buffer
+        udp.read(packetBuffer, NTP_PACKET_SIZE);                //Считывание пакета из буффера
 
-        //the timestamp starts at byte 40 of the received packet and is four bytes,
-        // or two words, long. First, esxtract the two words:
 
         unsigned long highWord = word(packetBuffer[40], packetBuffer[41]);
         unsigned long lowWord = word(packetBuffer[42], packetBuffer[43]);
-        // combine the four bytes (two words) into a long integer
-        // this is NTP time (seconds since Jan 1 1900):
+
         timecor = highWord << 16 | lowWord;
         timecor = timecor - (millis()/1000);
       }
@@ -518,7 +469,6 @@ void loop() {
     if(loop_en == true) {
         esp_vcc = ESP.getVcc()/1000.0;
 		if(data_get==true) {
-			//digitalWrite(2, HIGH);
 			tmp=dht.readHumidity();
 			if(tmp < 0 || tmp > 100 || tmp == NAN){
 				idht_ok=false;
@@ -529,8 +479,6 @@ void loop() {
 				idht_ok=true;
 			}
 			data_get=false;
-			//delay(200);
-			//digitalWrite(2, LOW);
 		}
         if(client.available()) {
             bzero(replyb, RBUF_SIZE);
@@ -599,9 +547,6 @@ void loop() {
         ESPhttpUpdate.rebootOnUpdate(false);
         srlcd.print("Запуск обновления... ");
         delay(2000);
-        //srlcd.setCursor(13,0);
-        //srlcd.print("ПОПЫТКА");
-        //delay(2000);
         t_httpUpdate_return ret = ESPhttpUpdate.update("http://dev.a1mc.ru/rom/esp8266/disp/flash.bin");
         srlcd.setCursor(0,1);
         switch(ret) {
@@ -628,12 +573,10 @@ void loop() {
         delay(2000);
         srlcd.clear();
         loop_en = true;
-        //ESP.wdtEnable(800);
     }
     if(loop_en == true) {
         if(dht_ok == 1){
             srlcd.setCursor(0,1);
-            //srlcd.print("                   ");
             char sm[2] = {' ', ' '};
             srlcd.setCursor(0,1);
             yield();
@@ -677,17 +620,6 @@ void loop() {
         yield();
         unsigned long secsSince1900 = timecor + (millis()/1000);
 
-        //srlcd.setCursor(0,1);
-        //srlcd.print("                    ");
-
-        /*
-        if(dht_ok == 1){
-        srlcd.setCursor(0,0);
-        srlcd.print(dht_temp);
-      //srlcd.writecode(0x99);
-      //srlcd.write('C');
-      //srlcd.print("  ");
-      }*/
         srlcd.setCursor(18,0);
         switch(get_signal_qua(6, 0))
         {
@@ -725,32 +657,24 @@ void loop() {
         const unsigned long seventyYears = 2208988800UL;
         // subtract seventy years:
         unsigned long epoch = secsSince1900 - seventyYears;
-        // print Unix time:
-
-
-        // print the hour, minute and second:
 
         srlcd.setCursor(6,0);
-        //srlcd.print("      ");
         i=numberOfHours(epoch);
         i+=3;
         if(i>23) {
             i-=24;
           }
         if ( i < 10 ) {
-            // In the first 10 minutes of each hour, we'll want a leading '0'
             srlcd.print('0');
           }
-        srlcd.print(i);                                         // print the hour (86400 equals secs per day)
+        srlcd.print(i); 
         srlcd.print(':');
         if ( numberOfMinutes(epoch) < 10 ) {
-            // In the first 10 minutes of each hour, we'll want a leading '0'
             srlcd.print('0');
           }
-        srlcd.print(numberOfMinutes(epoch));                    // print the minute (3600 equals secs per minute)
+        srlcd.print(numberOfMinutes(epoch)); 
         srlcd.print(':');
         if ( numberOfSeconds(epoch) < 10 ) {
-            // In the first 10 seconds of each minute, we'll want a leading '0'
             srlcd.print('0');
           }
         srlcd.print(numberOfSeconds(epoch));
@@ -816,9 +740,6 @@ int splint_rtoa(char const *rx, int rs, int rc, char **name_mas, float *dat_mas)
 bool parse_A1DSP(char* tempstr) {
     //rx входная строка, rs колличество символов в строке, rc количество параметров
 	
-    /*srlcd.setCursor(OFFSET,0);
-    srlcd.print("ПАРС А1ПРО");
-	delay(1000);*/
     bmp_ok=false;
     lux_ok=false;
     dht_ok=false;
@@ -999,13 +920,8 @@ bool loadConfig() {
         return false;
       }
 
-    // Allocate a buffer to store contents of the file.
     std::unique_ptr<char[]> buf(new char[size]);
-
-    // We don't use String here because ArduinoJson library requires the input
-    // buffer to be mutable. If you don't use ArduinoJson, you may as well
-    // use configFile.readString instead.
-    configFile.readBytes(buf.get(), size);
+	configFile.readBytes(buf.get(), size);
 
     StaticJsonBuffer<200> jsonBuffer;
     JsonObject &json = jsonBuffer.parseObject(buf.get());
@@ -1014,56 +930,25 @@ bool loadConfig() {
         return false;
       }
 
-    // const char* serverName = json["serverName"];
-    // const char* accessToken = json["accessToken"];
     if(json["fw_ver"]==NULL) {
         return false;}
     if(atoi(json["fw_ver"]) != fw_ver){
 		return false;
     }
-    //data_get = atoi(json["serial_data_read"]);
-    //narodmon_send = atoi(json["narodmon_send"]);
-	
+    
     lcdbacklset(atoi(json["lcdbackl"]));
-    /*
-    buzzer_mode = atoi(json["buzzer_mode"]);
-    buzzer_timeout = atoi(json["buzzer_timeout"]);
-    buzzer_tone = atoi(json["buzzer_tone"]);
-    led_mode = atoi(json["led_mode"]);
-    led_timeout = atoi(json["led_timeout"]);
-    led_pwm = atoi(json["led_pwm"]);
-    v_mode = atoi(json["v_mode"]);
-     */
     return true;
   }
 
 bool saveConfig() {
     StaticJsonBuffer<200> jsonBuffer;
     JsonObject &json = jsonBuffer.createObject();
-    /*
-    json["buzzer_mode"] = buzzer_mode;
-    json["buzzer_timeout"] = buzzer_timeout;
-    json["buzzer_tone"] = buzzer_tone;
-    json["led_mode"] = led_mode;
-    json["led_timeout"] = led_timeout;
-    json["led_pwm"] = led_pwm;
-    json["v_mode"] = v_mode;
-     */
     json["fw_ver"] = fw_ver;
     int tmp=lcdbacklset();;
     json["lcdbackl"] = tmp;
     json["wname"] = wname;
     json["wpass"] = wpass;
-    /*byte bmac[6];
-    WiFi.macAddress(bmac);
-    char mac[40];
-    bzero(mac, 20);
-    sprintf(mac, "%X-%X-%X-%X-%X-%X", bmac[0], bmac[1], bmac[2], bmac[3], bmac[4], bmac[5]);
-    json["mac"]=mac;
-    */
-    //json["serial_data_read"] = data_get;
-    //json["narodmon_send"] = narodmon_send;
-
+    
     File configFile = SPIFFS.open("/config.json", "w");
     if (!configFile) {
         return false;
@@ -1096,10 +981,7 @@ bool NAROD_data_send(char *str,short int size) {
   bzero(str, size);
   tidht_temp=idht_temp;
   tidht_hum=idht_hum;
-  /*if(loop_redy == true){
-  tidht_temp=get_scs(rdtmp[TID], RCOL);
-  tidht_hum=get_scs(rdtmp[HID], RCOL);}
-*/
+
   byte bmac[6];
   WiFi.macAddress(bmac);
   bzero(mac, 20);
@@ -1166,14 +1048,7 @@ bool parse_NAROD(char* tempstr) {
     bool data_rec=false;
  	int st_col = 0;
  	
- 	
-        /*int tst=strlen(tempstr);
- 	char tstrr[] = ",tm=2,ts=3\0\0";
-        for(int t = tst; t < tst+strlen(tstrr); t++){
-                tempstr[t]=tstrr[t-tst];
-        }
-        */
-	for(int i =0; i<strlen(tempstr); i++)
+ 	for(int i =0; i<strlen(tempstr); i++)
 	{
 		if(tempstr[i] == '=') {
 			st_col++; }
@@ -1184,14 +1059,8 @@ bool parse_NAROD(char* tempstr) {
 	yield();
 	int col=st_col;
     int i = 0;
-    
-    //srlcd.setCursor(0,1);
-    //srlcd.print(tempstr);
+
     int *dat_mas = (int *)malloc(st_col * sizeof(int));
-/*    for(i=0 ; i < st_col; i ++)
-    {
-	dat_mas[i]=0;
-    }*/
 	char **name_mas = (char **)malloc(st_col * sizeof(char *));
 	for(i = 0; i < st_col; i++) {
 		name_mas[i] = (char *)malloc(15 * sizeof(char));
@@ -1200,29 +1069,18 @@ bool parse_NAROD(char* tempstr) {
 	for(int t = 0; t < (strlen(tempstr)-1); t++){
 		tempstr[t]=tempstr[t+1];
 	}
-	//delay(1000);
-	//srlcd.setCursor(0,1);
-	//srlcd.print(tempstr);
+
 	tempstr[strlen(tempstr)-1]='\0';
 	splint_narod(tempstr, strlen(tempstr), col, name_mas, dat_mas);
-	//return col;
 	yield();
 	if(col > 0) {
 		data_rec=true;
 		for(int ilp = 0; ilp < col; ilp++) {
 			yield();
-			//tempstr += String("\nName = ") + name_mas[ilp] + String(" data = ") + dat_mas[ilp];
 			if (strcmp(name_mas[ilp], "lcdbackl") == 0) {
 				lcdbacklset(dat_mas[ilp]);
 				saveConfig();
-			}
-			/*
-			else if (strcmp(name_mas[ilp], "MQV5") == 0)  {
-				mqv5=dat_mas[ilp];
-			}
-			else if (strcmp(name_mas[ilp], "MQV") == 0)  {
-				mqv=dat_mas[ilp];
-			}*/		
+				}
 			}	
 	}
 	else {
@@ -1304,10 +1162,4 @@ return lcdbackl;
 bool lcdbacklset(){
 	return lcdbackl;
 }
-/*
-int main() {
-	setup();
-	loop();
-}*/
-
 #pragma GCC pop_options

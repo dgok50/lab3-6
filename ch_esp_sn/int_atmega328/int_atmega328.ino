@@ -43,11 +43,11 @@ double rdtmp[13][10];
 String tempstr;
 
 
-void bzero(void *mas, size_t bits){
-	char *s =  (char*)mas;
-    for(size_t u=0; u < bits; u++)
-        s[u]='\0';
-}
+//void bzero(void *mas, size_t bits){
+//	char *s =  (char*)mas;
+//    for(size_t u=0; u < bits; u++)
+//        s[u]='\0';
+//}
 
 void setup() {
   //обнуляем регистр управления SPI
