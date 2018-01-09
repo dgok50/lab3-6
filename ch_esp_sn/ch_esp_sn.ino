@@ -841,13 +841,15 @@ bool NAROD_data_send(char *str,short int size) { //Отправка данных
   }
   sprintf(str, "%s##\n\0", str);
   
-  client.connect("narodmon.ru", 8283);	//Соеденение с сервером (открытие сокета)
+  if (!client.connect("narodmon.ru", 8283)) {	//Соеденение с сервером (открытие сокета)
+	  return false;
+  }
   client.print(str);  //Отправка пакета
   
   unsigned long timeout = millis();
 
   while (client.available() == 0) { //Ожидание ответа
-    if (millis() - timeout > 1200) { //В слечае ожидания более 1 сек
+    if (millis() - timeout > 1200) { //В слечае ожидания более 1,2 сек
       client.stop(); //закрытие сокета
 	  return false; //возврат кода ошибки
     }
@@ -863,13 +865,13 @@ bool NAROD_data_send(char *str,short int size) { //Отправка данных
   if(replyb[0] == 'O' && replyb[1] == 'K') { //В случае успеха
 	return true;
   }
-  else if(replyb[0] == '#') { //В случае получение удалённой команды игнарируем
+  else if(replyb[0] == '#') { //В случае получение удалённой команды игнорируем
 	return true;
   }
   
   char tmp = replyb[7]; //Обрезка до 7 символа (сохранения)
   replyb[7]='\0';
-  if(i > 8 && strcmp(replyb,"INTERVAL")){ //В случае ошибки по привышению частотыотправки, защитываем отправку как успешную
+  if(i > 8 && strcmp(replyb,"INTERVAL")){ //В случае ошибки по привышению частоты отправки, защитываем отправку как успешную для предотвращения повторной
     replyb[7]=tmp;
 	return true;  
   }
