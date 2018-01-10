@@ -35,6 +35,7 @@
 # include "lirc.h"
 #endif
 
+#include "a1fl.c"
 #include "readers.h"
 #include "dither.h"
 #include "fbtools.h"
@@ -87,6 +88,10 @@
 
 /* lirc fd */
 int lirc = -1;
+
+/* A1 Test Parser */
+volatile float temp=0, hum=0, pre=0, lux=0;
+int rc=0;
 
 /* variables for read_image */
 int32_t         lut_red[256], lut_green[256], lut_blue[256];
@@ -424,136 +429,24 @@ size_t writefunc(void *ptr, size_t size, size_t nmemb, struct string *s)
   return size*nmemb;
 }
 
-int splint_rtoa (unsigned char *rx, int rs, int rc, char **name_mas,
-	    float *dat_mas) //rx входная строка, rs колличество символов в строке, rc количество параметров
-{
-  int i, r, mix = 0;
-  char tmp[20];
-  //syslog (LOG_NOTICE, "butes num:%d\n", rs);
-
-  for (i = 0; i < rc; i++)
-    {
-      if (name_mas[i] != NULL)
-	{
-	  for (r = mix; r < rs; r++)
-	    {
-	      if (rx[r] == ':')
-		{
-		  mix = r + 1;
-		  break;
-		}
-	      else
-		{
-		  name_mas[i][r - mix] = rx[r];
-		}
-	    }
-	  for (r = mix; r < rs; r++)
-	    {
-	      if (rx[r] == ' ')
-		{
-		  tmp[r - mix] = '\0';
-		  mix = r + 1;
-		  break;
-		}
-	      else
-		{
-		  tmp[r - mix] = rx[r];
-		}
-	    }
-	  dat_mas[i] = atof (tmp);
-	  //syslog (LOG_NOTICE, "[splint]sens_%d %s dat:%f\n", i, name_mas[i], dat_mas[i]);
-	}
-    }
-  //syslog (LOG_NOTICE, "end splint\n");
-  return rc;
-}
 
 static void status_update(unsigned char *desc, char *info)
-{
-    int yt = fb_var.yres + (face->size->metrics.descender >> 6);
-    wchar_t str[128];
-    
+{	
     if (!statusline)
 	return;
-    CURL *curl;
-    CURLcode res;
 
-    int rc=0;
+    int yt = fb_var.yres + (face->size->metrics.descender >> 6);
+    wchar_t str[128];
+	
     int unixtime_dat=0, time_offset=0;
     time_t t = time(NULL);
     struct tm tm = *localtime(&t);
-
-    float temp=0, hum=0, pre=0;
-    struct string s;
-    curl = curl_easy_init();
-    if(curl) {
-      int i;
-      char **name_mas;
-      float *dat_mas;
-      
-      init_string(&s);
-
-      curl_easy_setopt(curl, CURLOPT_URL, "http://192.168.0.174/tmp/arduino_raw.txt");
-      curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writefunc);
-      curl_easy_setopt(curl, CURLOPT_WRITEDATA, &s);
-      res = curl_easy_perform(curl);
-      
-      for(i=0;i<s.len;i++)
-      {
-	if(s.ptr[i]==':')
-	  rc++;
-      }
-      dat_mas = (float *) malloc (rc * sizeof (float));	//Выделение массива для паказаний датчиков
-      name_mas = (char **) malloc (rc * sizeof (char *));	//Выделение массива указателей
-      if (name_mas == NULL)		//Проверка выдиления
-      {
-	perror("Ошибка!\n Невозможно выдилить память.\nОписание ошибки:");
-	exit (EXIT_FAILURE);
-      }
-
-      for (i = 0; i < rc; i++)
-      {
-	name_mas[i] = (char *) malloc (25 * sizeof (char));	//Выдиление массива char для каждого указателя(создание 2 мерного массива)
-
-	if (name_mas[i] != NULL)
-	{
-	  memset (name_mas[i], '\0', 25 * sizeof (char));	//Заполнение нулями массива
-	}
-      }
-      splint_rtoa(s.ptr, s.len, rc, name_mas, dat_mas);
-      for(i=0;i<rc;i++)
-      {
-       if(strcmp(name_mas[i],"OT") == 0) {
-        temp=dat_mas[i];}
-       else if(strcmp(name_mas[i],"Hum") == 0){
-        hum=dat_mas[i];
-       }
-       else if(strcmp(name_mas[i], "PRE") == 0){
-        pre=dat_mas[i];}
-       else if(strcmp(name_mas[i],"time") == 0)
-       {
-        unixtime_dat=dat_mas[i]*1000;
-       }
-      }
-      /* always cleanup */
-      curl_easy_cleanup(curl);
-    
-      //swprintf(str,ARRAY_SIZE(str),L"%s", s.ptr);
-      
-      for (i = 0; i < rc; i++)
-      {
-	free(name_mas[i]);	
-      }
-      free(dat_mas);	
-      free(name_mas);	
-    }
-    
     status_prepare();
-     
+
     if(rc>0) {
-      time_offset = (int)t - unixtime_dat;
+      //time_offset = (int)t - unixtime_dat;
       //swprintf(str,ARRAY_SIZE(str),L"%s len:%d msg col:%d ", s.ptr, s.len, rc);
-      if(time_offset >= 120)
+      /*if(time_offset >= 120)
       {
        char surname[10]="м\0";
        if(time_offset >= 60)
@@ -563,8 +456,8 @@ static void status_update(unsigned char *desc, char *info)
        }
        swprintf(str,ARRAY_SIZE(str),L"Давность:%d%s", time_offset, surname);
        shadow_draw_string(face, 0, 20, str, -1);
-      }
-      swprintf(str,ARRAY_SIZE(str),L"Температура: %.2f°C Влажность: %.2f%c Давление: %.2fмм рт. ст.", temp, hum, 37, pre);
+      }*/
+      swprintf(str,ARRAY_SIZE(str),L"Температура: %.2f°C Влажность: %.2f%c Давление: %.2fмм рт. ст. Освещённость: %.2fЛк", temp, hum, 37, pre, lux);
       //printf("Задержка:%d unixtime_pac:%d unixtime_local:%d", time_offset, unixtime_dat, (int)t);
     }
     else{
@@ -600,8 +493,81 @@ static void status_update(unsigned char *desc, char *info)
     sprintf(tmp, "%s%d",tmp,tm.tm_mday);
     swprintf(str,ARRAY_SIZE(str), L" %s ",tmp);
     shadow_draw_string(face, fb_var.xres, yt, str, 1);
-    free(s.ptr);
     shadow_render();
+
+    rc=0;
+    CURL *curl;
+    CURLcode res;
+
+    struct string s;
+    curl = curl_easy_init();
+    if(curl) {
+      int i;
+      char **name_mas;
+      float *dat_mas;
+      
+      init_string(&s);
+
+      curl_easy_setopt(curl, CURLOPT_URL, "http://192.168.0.61/a1pr");
+      curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5);
+      curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10);
+      curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writefunc);
+      curl_easy_setopt(curl, CURLOPT_WRITEDATA, &s);
+      res = curl_easy_perform(curl);
+      
+      for(i=0;i<s.len;i++)
+      {
+		if(s.ptr[i]==':')
+		rc++;
+      }
+      dat_mas = (float *) malloc (rc * sizeof (float));	//Выделение массива для паказаний датчиков
+      name_mas = (char **) malloc (rc * sizeof (char *));	//Выделение массива указателей
+      if (name_mas == NULL)		//Проверка выдиления
+      {
+	perror("Ошибка!\n Невозможно выдилить память.\nОписание ошибки:");
+	exit (EXIT_FAILURE);
+      }
+
+      for (i = 0; i < rc; i++)
+      {
+	name_mas[i] = (char *) malloc (25 * sizeof (char));	//Выдиление массива char для каждого указателя(создание 2 мерного массива)
+
+	if (name_mas[i] != NULL)
+	{
+	  memset (name_mas[i], '\0', 25 * sizeof (char));	//Заполнение нулями массива
+	}
+      }
+      setlocale(LC_NUMERIC, "POSIX");
+      splint_rtoa(s.ptr, s.len, rc, name_mas, dat_mas);
+      for(i=0;i<rc;i++)
+      {
+       if(strcmp(name_mas[i],"DTMP") == 0) {
+        temp=dat_mas[i];}
+       else if(strcmp(name_mas[i],"DHUM") == 0){
+        hum=dat_mas[i];
+       }
+       else if(strcmp(name_mas[i], "BPRE") == 0){
+        pre=dat_mas[i];}
+       else if(strcmp(name_mas[i], "LUX") == 0){
+        lux=dat_mas[i];}
+       else if(strcmp(name_mas[i],"time") == 0)
+       {
+        unixtime_dat=dat_mas[i]*1000;
+       }
+      }
+      /* очистка curl структуры */
+      curl_easy_cleanup(curl);
+    
+      //swprintf(str,ARRAY_SIZE(str),L"%s", s.ptr);
+      
+      for (i = 0; i < rc; i++)
+      {
+	free(name_mas[i]);	
+      }
+      free(dat_mas);	
+      free(name_mas);	
+    }
+    free(s.ptr);
 }
 
 static void status_error(unsigned char *msg)
@@ -706,7 +672,7 @@ static void show_exif(struct flist *f)
 		 l2, l2, value[tag]);
 	count++;
     }
-    shadow_draw_text_box(face, 24, 16, transparency,
+    shadow_draw_text_box(face, 26, 16, transparency,
 			 linebuffer, count);
     shadow_render();
 
@@ -748,7 +714,7 @@ static void show_help(void)
 	L"  y              - mirror image horizontally (left to right)",
     };
 
-    shadow_draw_text_box(face, 24, 16, transparency,
+    shadow_draw_text_box(face, 26, 16, transparency,
 			 help, ARRAY_SIZE(help));
     shadow_render();
 }
@@ -1671,7 +1637,7 @@ main(int argc, char *argv[])
 
     font_init();
     if (NULL == fontname)
-	fontname = "monospace:size=16";
+	fontname = "monospace:size=20";
     face = font_open(fontname);
     if (NULL == face) {
 	fprintf(stderr,"can't open font: %s\n",fontname);
