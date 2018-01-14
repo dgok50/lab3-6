@@ -20,11 +20,9 @@ float get_scsf(float *, unsigned int);
 int get_scsi(int *, unsigned int);
 long get_scsl(long *, unsigned int);
 
-/*
 #ifndef ESP_CH
 void bzero(void *, size_t);
 #endif 
-*/
 
 //Заполнение нулями 2-у мерного массива
 void bbzero(void **, size_t, size_t);
@@ -90,7 +88,6 @@ long get_scsl(long *mas, unsigned int rr) { //функция усреднени�
   return res/rr;
 }
 
-/*
 #ifndef ESP_CH
 void bzero(void *mas, size_t bits){
 	char *s =  (char*)mas;
@@ -98,7 +95,6 @@ void bzero(void *mas, size_t bits){
         s[u]='\0';
 }
 #endif
-*/
 
 void bbzero(void **mas, size_t bits, size_t mcol){
 	char **s =  (char**)mas;

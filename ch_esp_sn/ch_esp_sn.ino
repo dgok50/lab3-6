@@ -2,8 +2,11 @@
 #include <ESP8266HTTPClient.h>
 #include <ESP8266httpUpdate.h>
 #include "FS.h"
+#define ESP_CH
 #include "a1fl.c" //Библиотека с прекладными функциями
 #include <ArduinoJson.h>
+#include <string.h>
+#include <stdio.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266WiFi.h>
 #include <SPI.h>
@@ -12,8 +15,6 @@
 #include <Ticker.h>
 #include <limits.h>
 #include <float.h>
-
-#define ESP_CH
 
 /*Обьявление макросов*/
 #define SECS_PER_MIN  (60UL) //Кол секунд в минуту
@@ -40,7 +41,7 @@
 
 
 char hostname_load[20]; //Имя хоста
-const int fw_ver = 132; //Версия прошивки
+const int fw_ver = 135; //Версия прошивки
 
 Ticker data_collect, data_send_tic; //Обьявление таймеров событий
 
@@ -51,7 +52,8 @@ const char *password = "012345780"; //Пароль для аварийной с�
 ESP8266AVRISP avrprog(328, 2); //Инициализация библиотеки ISP прогроматора
 ESP8266WebServer server(80); //Инициализация библиотеки веб сервера, с установкой порта
 ESP8266HTTPUpdateServer httpUpdater; //Инициализация библиотеки сервера самообновления
-
+WiFiClient client;
+  
 /*Инициализация переменных*/
 float mqv=0, mqv5=0, mq1=0, mq2=0, mq2_5=0, mq2_ro=0, mq2_5ro=0, mq1_ro=0;
 unsigned long mq9LPGppm=0, mq9COppm=0, mq7COppm=0;
@@ -132,8 +134,8 @@ const char *webPage = "<!DOCTYPE html>" //Главнаявеб страница
   "  <a href= \"/a1pr\">A1_DSP</a><br>\n"
   "  <a href= \"/sysinfo.txt\">System info</a><br>\n"
   "  <a href= \"/set?restart=1\">Restart device</a><br>\n"
-  "  <a href= \"/set?format=\">Reset default st</a><br>\n"
-  "  <a href= \"/set?reset_ro=\">Reset MQ ro const</a><br>\n"
+  "  <a href= \"/set?format=243\">Reset default st</a><br>\n"
+  "  <a href= \"/set?reset_ro=243\">Reset MQ ro const</a><br>\n"
   "  <a href= \"/set?avrisp_s=1\">Go to isp</a><br>\n"
   "  <a href= \"/set?avr_reset=1\">Restart avr</a><br>\n"
   "  <a href= \"/i2c_scan.txt\">I2C Scan</a><br>\n"
@@ -148,6 +150,7 @@ void setup() { //Функция настройки запускается пер
   bzero(rec_buff, RBUF); //Чистка буффера приёма данных из UART
   bzero(replyb, RBUF); //Чистка буфера ответа из narodmon
   bzero(hostname_load, 20);
+  
   WiFi.begin(); //Инициализация функционала беспроводной сети
   delay(1000);
   Serial.begin(9600); //Инициализация UART порта
@@ -169,6 +172,7 @@ void setup() { //Функция настройки запускается пер
   selfup=!ESP.getResetS();
   if(selfup == false){ //В случаеотсутствия исключений попытказагрузки конфиг файла
    if (!loadConfig()) {
+	strlcpy(hostname_load, DEFHOSTNAME, sizeof(hostname_load));
     SPIFFS.remove("/config.json"); //Удаление и пересозданияфайла в случаеневозможности загрузки
     if (!saveConfig()) { //В случае невозможности создания файла формотирование фс и перезапуск
 		SPIFFS.format();
@@ -226,7 +230,8 @@ void setup() { //Функция настройки запускается пер
 	bzero(cstr1, BUF_SIZE);
 	
 	if(hostname_load[1]=='\0') {
-		stpcpy(hostname_load,DEFHOSTNAME);
+		strlcpy(hostname_load,DEFHOSTNAME, sizeof(hostname_load));
+		saveConfig();
 	}
 	/*Вывод имя хоста и версии прошивки*/
     sprintf(cstr1, "Hostname: %s\nFW Ver: %d.%d.%d\n", hostname_load, fw_ver/100, (fw_ver%100)/10, fw_ver%10);
@@ -311,7 +316,7 @@ void setup() { //Функция настройки запускается пер
 	sprintf(cstr1, "%sDate recived = %d\n", cstr1, data_rec);
 	sprintf(cstr1, "%sbmp tmp = %.2f\n", cstr1, bmp_temp);
     server.send(200, "text/plain", cstr1);
-    delay(1000);
+    delay(RDTIME);
   });
   server.on("/i2c_scan.txt", []() { //Сканирование I2C шины
     Serial.print("S");
@@ -402,7 +407,15 @@ void setup() { //Функция настройки запускается пер
 		SPIFFS.format();
 		ESP.restart();
 	  }
+    }   
+	
+	if (server.arg("force_error") != "") { 
+		force_error=tobool(server.arg("force_error").c_str());
+		server.send(200, "text/xhtml", "set force_error flag");
+		delay(RDTIME);
+	    saveConfig();
     }
+	
     if (server.arg("v_mode") != "") { //Принудительный переход в режим аварийной тд
       saveConfig();
       WiFi.disconnect(false);
@@ -426,7 +439,8 @@ void setup() { //Функция настройки запускается пер
 
 void loop() {
   server.handleClient(); //Обработка постпивших запросов клиентов
-  delay(1);
+  delay(3);
+  yield();
   if(selfup==true && ispmode == false) {
 	    ispmode = true; //Установка флага програматора для избежания сробатований других функций
         ESP.wdtDisable();
@@ -447,6 +461,7 @@ void loop() {
 	    ispmode = false;
     }
   delay(1);
+  yield();
   if (drq==true && ispmode == false){ //В случае установки флага получения данных, считование
     sbufclean(); //Очистка буфера компорта
     Serial.println(""); //Запрос данных
@@ -488,7 +503,7 @@ void loop() {
 				mq7COppm= readScaled(-0.77, 3.38, readRatio(calculateResistance(mq1/10, mc_vcc, MQ7_RL), mq1_ro));
 			}
 			
-			if(mq7COppm <= 0) {
+			if(mq7COppm == 0) {
 				mq1_ro=calibrate(calculateResistance(mq1/10, mc_vcc, MQ7_RL), MQ7_ROCLAIR);	
 				saveConfig();
 			}
@@ -503,7 +518,7 @@ void loop() {
 				mq9LPGppm= readScaled(-0.48, 3.33, readRatio(calculateResistance(mq2_5/10, mc_vcc, MQ9_RL), mq2_5ro));
 			}
 			
-			if(mq9COppm <= 0 || mq9LPGppm <= 0) {
+			if(mq9COppm == 0 || mq9LPGppm == 0) {
 				mq2_5ro=calibrate(calculateResistance(mq2_5/10, mc_vcc, MQ9_RL), MQ9_ROCLAIR);	
 				mq2_ro=calibrate(calculateResistance(mq2/10, mc_vcc, MQ9_RL), MQ9_ROCLAIR);	  
 				saveConfig();
@@ -534,12 +549,14 @@ void loop() {
 	drq=false;
   }
   
+  yield();
   if (send_data == true && ispmode == false) { //Отправка данных на народный мониторинг
 	  send_data = false; //Сброс флага отправки
 	  if(narodmon_send==1) {
 	  repsend = !NAROD_data_send(cstr1, BUF_SIZE);}
   }
   
+  yield();
   if (ispmode == true) { //Режи прошивки
     static AVRISPState_t last_state = AVRISP_STATE_IDLE;
     AVRISPState_t new_state = avrprog.update();
@@ -569,69 +586,63 @@ bool loadConfig() { //Функция загрузки конфигурации
     return false;
   }
 
-  size_t size = configFile.size();
-  if (size > 1024) {
+  if (configFile.size() > 1024) {
     return false;
   }
 
-  //Выделение буферадля чтения файла
-  std::unique_ptr<char[]> buf(new char[size]);
+  StaticJsonBuffer<1024> jsonBuffer;
   
-  configFile.readBytes(buf.get(), size);
+  JsonObject &rootp = jsonBuffer.parseObject(configFile);
 
-  StaticJsonBuffer<200> jsonBuffer;
-  JsonObject &json = jsonBuffer.parseObject(buf.get());
 
-  if (!json.success()) {
+  if (!rootp.success()) {
     return false;
   }
 
-  // const char* serverName = json["serverName"];
-  // const char* accessToken = json["accessToken"];
-  if(json["serial_data_read"]==NULL || json["mac"]==NULL) {
+  // const char* serverName = rootp["serverName"];
+  // const char* accessToken = rootp["accessToken"];
+  if(rootp["serial_data_read"]==NULL || rootp["mac"]==NULL) {
 	  return false; }
   
-  if(atoi(json["fw_ver"]) != fw_ver) {
+  if(atoi(rootp["fw_ver"]) >= fw_ver) {
 	  return false; }
   
-  data_get = tobool(json["serial_data_read"]);
   
-  const char *tmp = json["mac"];
-  strcpy(mac, tmp);
+  data_get = tobool(rootp["serial_data_read"]);
   
-  const char *tmp2 = json["HOSTNAME"];
-  strcpy(hostname_load, tmp2);
+  strlcpy(mac, rootp["mac"], sizeof(mac));
+ 
+  strlcpy(hostname_load, rootp["HOSTNAME"] | DEFHOSTNAME, sizeof(hostname_load));
   
-  //memcpy ( hostname_load, tmp2, strlen(tmp2)+1 );
+  narodmon_send = tobool(rootp["narodmon_send"]);
+  mq1_ro = atof(rootp["mq1_ro"]);
+  mq2_ro = atof(rootp["mq2_ro"]);
+  mq2_5ro = atof(rootp["mq2_5ro"]);
+  force_error = atof(rootp["force_error"]);
   
-  if(hostname_load[0]=='\0') {
-	  stpcpy(hostname_load,DEFHOSTNAME);
-  }
-  
-  narodmon_send = tobool(json["narodmon_send"]);
-  mq1_ro = atof(json["mq1_ro"]);
-  mq2_ro = atof(json["mq2_ro"]);
-  mq2_5ro = atof(json["mq2_5ro"]);
+  configFile.close();
   return true;
 }
 
-bool saveConfig() {
-  StaticJsonBuffer<200> jsonBuffer;
-  JsonObject &json = jsonBuffer.createObject();
-  json["fw_ver"]=fw_ver;
-  json["mac"]=mac;
-  json["HOSTNAME"]=DEFHOSTNAME;
-  json["serial_data_read"] = data_get;
-  json["narodmon_send"] = narodmon_send;
-  json["mq1_ro"] = mq1_ro;
-  json["mq2_ro"] = mq2_ro;
-  json["mq2_5ro"] = mq2_5ro;
-  File configFile = SPIFFS.open("/config.json", "w");
+bool saveConfig() {  
+  File configFile = SPIFFS.open("/config.json", "w+");
   if (!configFile) {
     return false;
   }
+  StaticJsonBuffer<256> jsonBuffer;
+  JsonObject &rootp = jsonBuffer.createObject();
+  rootp["fw_ver"]=fw_ver;
+  rootp["mac"]=mac;
+  rootp["force_error"]=force_error;
+  rootp["HOSTNAME"]=hostname_load;
+  rootp["serial_data_read"] = data_get;
+  rootp["narodmon_send"] = narodmon_send;
+  rootp["mq1_ro"] = mq1_ro;
+  rootp["mq2_ro"] = mq2_ro;
+  rootp["mq2_5ro"] = mq2_5ro;
 
-  json.printTo(configFile);
+  rootp.printTo(configFile);
+  configFile.close();
   return true;
 }
 
@@ -728,7 +739,7 @@ bool parse_A1DSP(char* tempstr) { //Парсинг данных МК
 	return data_rec;
 }
 
-int get_state(char *s, unsigned int s_size) { //Формирование XML
+int get_state(char *s, unsigned int s_size) { //Формирование XML на основе шаблона
   sprintf(s,
           "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
 		  "<esp>\n"
@@ -795,7 +806,6 @@ int get_state(char *s, unsigned int s_size) { //Формирование XML
 }
 
 bool NAROD_data_send(char *str,short int size) { //Отправка данных на народны мониторинг
-  WiFiClient client;
   bzero(str, size);
   sprintf(str,
           "#%s#%s_v%d.%d.%d\n"
@@ -849,7 +859,7 @@ bool NAROD_data_send(char *str,short int size) { //Отправка данных
   unsigned long timeout = millis();
 
   while (client.available() == 0) { //Ожидание ответа
-    if (millis() - timeout > 1200) { //В слечае ожидания более 1,2 сек
+    if (millis() - timeout > 1000) { //В слечае ожидания более 1 сек
       client.stop(); //закрытие сокета
 	  return false; //возврат кода ошибки
     }

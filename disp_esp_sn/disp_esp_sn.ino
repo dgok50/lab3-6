@@ -27,6 +27,7 @@
 #define RCOL 30
 #define TID 0
 #define HID 1
+#define S_MAX 100
 
 #define USE_SERIAL srlcd
 
@@ -56,13 +57,14 @@ ESP8266WebServer server(80);
 ESP8266HTTPUpdateServer httpUpdater;
 
 float mqv=0, mq7=0, mq9=0, vin=0, mc_vcc=0, mc_temp=0, lux=0, esp_vcc=0, tmp=0, mqv5=0, mq9_5=0;
-float dht_temp=0, dht_hum=0, bmp_temp=0, bmp_pre=0, rdy=0, idht_temp=0, idht_hum=0, tidht_hum=0, tidht_temp=0;
-unsigned int loop_i = 0, i=0, loop_u = 0;
+float dht_temp=0, dht_hum=0, bmp_temp=0, bmp_pre=0, rdy=0, idht_temp=0, idht_hum=0, tidht_hum=0;
+float sdht_temp[S_MAX], sdht_hum[S_MAX], tidht_temp=0;
+unsigned int loop_i = 0, i=0, loop_u = 0, s_i=0;
 unsigned long tfs = 0, timecor;
 volatile unsigned long rnd = 0, loop_g = 0;
 bool loop_redy = false;
 volatile bool bmp_ok=false, lux_ok=false, dht_ok=false, data_rec=false, idht_ok=false;
-volatile bool ispmode = false, drq = false, send_data = false, repsend = false;
+volatile bool ispmode = false, drq = false, send_data = false, repsend = false, s_redy=false;
 volatile bool loop_en=true, selfup=false, lcdbackl=true, data_get=true, narodmon_send=false;
 char cstr1[BUF_SIZE], replyb[RBUF_SIZE], nreplyb[RBUF_SIZE], ctmp='\0';
 String wpass="84992434219", wname="A1 Net";
@@ -608,6 +610,22 @@ void loop() {
             else {
                 sprintf(cstr1, "Давлен: %.2f%ммРтСт", bmp_pre);
                 loop_u=0;
+				if(idht_ok==1){
+					sdht_hum[s_i]=idht_hum;
+					sdht_temp[s_i]=idht_temp;
+					if(s_i >= S_MAX) {
+						s_redy=1;
+					}
+				}
+				if(s_redy==1) {
+					tidht_hum=get_scs(sdht_hum,S_MAX);
+					tidht_temp=get_scs(sdht_temp,S_MAX);
+				}
+				else
+				{
+					tidht_hum=sdht_hum;
+					tidht_temp=sdht_temp;
+				}
               }
             srlcd.print(cstr1);
             srlcd.writecode(sm[0]);
@@ -979,8 +997,8 @@ bool A1_data_pr(char *s, unsigned int s_size) {
 bool NAROD_data_send(char *str,short int size) {
   WiFiClient client;
   bzero(str, size);
-  tidht_temp=idht_temp;
-  tidht_hum=idht_hum;
+  //tidht_temp=idht_temp;
+  //tidht_hum=idht_hum;
 
   byte bmac[6];
   WiFi.macAddress(bmac);
