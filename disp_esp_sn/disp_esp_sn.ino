@@ -2,6 +2,8 @@
 #include <ESP8266HTTPClient.h>
 #include <ESP8266httpUpdate.h>
 #include "FS.h"
+#define ESP_CH
+#include "a1fl.c" //Библиотека с прекладными функциями
 #include <ArduinoJson.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266WiFi.h>
@@ -15,7 +17,6 @@
 
 #pragma GCC push_options
 #pragma GCC optimize ("O0")
-
 
 #define SECS_PER_MIN  (60UL)
 #define SECS_PER_HOUR (3600UL)
@@ -35,10 +36,10 @@
 
 const char *HOST_NAME = "DISP_ESP";
 const char *endl = "\n";
-const int fw_ver = 26;
-#define dataPin 12                                          // SR Data from ESP pin 12
-#define clockPin 14                                         // SR Clock from ESP pin 14
-#define enablePin 13                                        // LCD enable from ESP pin 13
+const int fw_ver = 29;
+#define dataPin 12
+#define clockPin 14
+#define enablePin 13
 
 #define numberOfSeconds(_time_) (_time_ % SECS_PER_MIN)  
 #define numberOfMinutes(_time_) ((_time_ / SECS_PER_MIN) % SECS_PER_MIN) 
@@ -60,12 +61,16 @@ float mqv=0, mq7=0, mq9=0, vin=0, mc_vcc=0, mc_temp=0, lux=0, esp_vcc=0, tmp=0, 
 float dht_temp=0, dht_hum=0, bmp_temp=0, bmp_pre=0, rdy=0, idht_temp=0, idht_hum=0, tidht_hum=0;
 float sdht_temp[S_MAX], sdht_hum[S_MAX], tidht_temp=0;
 unsigned int loop_i = 0, i=0, loop_u = 0, s_i=0;
+
+
 unsigned long tfs = 0, timecor;
 volatile unsigned long rnd = 0, loop_g = 0;
 bool loop_redy = false;
+
 volatile bool bmp_ok=false, lux_ok=false, dht_ok=false, data_rec=false, idht_ok=false;
 volatile bool ispmode = false, drq = false, send_data = false, repsend = false, s_redy=false;
 volatile bool loop_en=true, selfup=false, lcdbackl=true, data_get=true, narodmon_send=false;
+
 char cstr1[BUF_SIZE], replyb[RBUF_SIZE], nreplyb[RBUF_SIZE], ctmp='\0';
 String wpass="84992434219", wname="A1 Net";
 char mac[22];
@@ -95,28 +100,12 @@ unsigned long sendNTPpacket(IPAddress&);
 bool parse_A1DSP(char*);
 bool parse_NAROD(char*);
 bool A1_data_pr(char *, unsigned int);
-int splint_rtoa(char const *, int, int, char **, float *);
-int splint_narod(char const *, int, int, char **, int *);
-void bzero(char *, unsigned int);
-void bfoll(char *mas, unsigned int start, unsigned int bits, char sym);
 bool NAROD_data_send(char *, short int);
 void data_send_f();
 
 
-void bzero(double *s, size_t n)
-{
-  size_t i;
-  for (i = 0; i < n; i++)
-    s[i] = 0;
-}
 
-double get_scs(double *mas, int rr) { //функция усреднения массивов
-  double res = 0;
-  for (int i = 0; i < rr; i++) {
-    res += mas[i];
-  }
-  return res/rr;
-}
+
 
 
 long get_signal_qua(long rfrom, long rto){
@@ -238,7 +227,8 @@ void setup() {
     	    srlcd.print("НЕ ВОЗМОЖНО СОХР КОНФ");
             Serial.println("Failed to save config");
             SPIFFS.format();
-          } else {
+			} 
+		else {
     	      srlcd.setCursor(0,1);
     	      srlcd.print("УСП СОХР КОНФ");
               Serial.println("Config saved");
@@ -350,7 +340,7 @@ void setup() {
 		 0xB0, numberOfHours(tfs), numberOfMinutes(tfs), numberOfSeconds(tfs), elapsedDays(tfs),
 		 ESP.getChipId(), ESP.getFlashChipId(), ESP.getFlashChipRealSize(), ESP.getFlashChipSize(), ESP.getFlashChipSpeed(),
 		 (ESP.getFlashChipMode() == FM_QIO ? "QIO" : ESP.getFlashChipMode() == FM_QOUT ? "QOUT" : ESP.getFlashChipMode() == FM_DIO ? "DIO" : ESP.getFlashChipMode() == FM_DOUT ? "DOUT" : "UNKNOWN"),
-		 ESP.getResetReason().c_str(), ESP.getResetID(), ESP.getResetInfo().c_str(), WiFi.status(),
+		 ESP.getResetReason().c_str(), ESP.getResetS(), ESP.getResetInfo().c_str(), WiFi.status(),
 		 WiFi.SSID().c_str(), WiFi.RSSI(), data_get, repsend, loop_en, get_signal_qua(100, 0), replyb);
         server.send(200, "text/xhtml", cstr1);
         delay(1000);
@@ -440,17 +430,15 @@ void setup() {
     srlcd.print("Запуск ntp          ");
 
     WiFi.hostByName(ntpServerName, timeServerIP); 
-    sendNTPpacket(timeServerIP);                                //Отправка NTP пакета на сервер
+    sendNTPpacket(timeServerIP);                                // send an NTP packet to a time server
     delay(1000);
     int cb = udp.parsePacket();
     if (cb) {
         Serial.println("no packet yet");
-        udp.read(packetBuffer, NTP_PACKET_SIZE);                //Считывание пакета из буффера
-
-
+        udp.read(packetBuffer, NTP_PACKET_SIZE);
+		
         unsigned long highWord = word(packetBuffer[40], packetBuffer[41]);
         unsigned long lowWord = word(packetBuffer[42], packetBuffer[43]);
-
         timecor = highWord << 16 | lowWord;
         timecor = timecor - (millis()/1000);
       }
@@ -481,6 +469,25 @@ void loop() {
 				idht_ok=true;
 			}
 			data_get=false;
+			if(idht_ok==1){
+			sdht_hum[s_i]=idht_hum;
+			sdht_temp[s_i]=idht_temp;
+			if(s_i >= S_MAX) {
+				s_redy=1;
+				s_i=0;
+			}
+			else {
+				s_i++;
+			}
+		}
+		if(s_redy==1) {
+				tidht_hum=get_scsf(sdht_hum,S_MAX);
+				tidht_temp=get_scsf(sdht_temp,S_MAX);
+			}
+		else {
+				tidht_hum=idht_hum;
+				tidht_temp=idht_temp;
+			}
 		}
         if(client.available()) {
             bzero(replyb, RBUF_SIZE);
@@ -529,20 +536,10 @@ void loop() {
         httpRequest();
         loop_i = 0;
         loop_u++;
-		if(idht_hum > 0 && idht_hum < 101 && idht_ok == true) {
-			rdtmp[loop_g][HID] = idht_hum;
-			rdtmp[loop_g][TID] = tmp;
-			if(loop_g >= (RCOL-1)){
-				loop_g=0;
-				loop_redy=true;}
-			else {
-				loop_g++;}
-		}
       }
     yield();
     
     if(selfup==true) {
-        //emupdate: //Goto очень плохая идея но иногда это единствинный выход
         ESP.wdtDisable();
         srlcd.clear();
         srlcd.setCursor(0,0);
@@ -598,34 +595,18 @@ void loop() {
                 sm[1]='C';
               }
 			else if(loop_u==4 && idht_ok == true){
-				sprintf(cstr1, "Вн темп: %.2f", idht_temp);
+				sprintf(cstr1, "Вн темп: %.2f", tidht_temp);
 				sm[0]=0x99;
 				sm[1]='C';
 			}
 			else if(loop_u==5 && idht_ok == true){
-				sprintf(cstr1, "Вн влажн: %.2f", idht_hum);
+				sprintf(cstr1, "Вн влажн: %.2f", tidht_hum);
 				sm[0]=0x25;
 			}
 			
             else {
                 sprintf(cstr1, "Давлен: %.2f%ммРтСт", bmp_pre);
                 loop_u=0;
-				if(idht_ok==1){
-					sdht_hum[s_i]=idht_hum;
-					sdht_temp[s_i]=idht_temp;
-					if(s_i >= S_MAX) {
-						s_redy=1;
-					}
-				}
-				if(s_redy==1) {
-					tidht_hum=get_scs(sdht_hum,S_MAX);
-					tidht_temp=get_scs(sdht_temp,S_MAX);
-				}
-				else
-				{
-					tidht_hum=sdht_hum;
-					tidht_temp=sdht_temp;
-				}
               }
             srlcd.print(cstr1);
             srlcd.writecode(sm[0]);
@@ -637,7 +618,6 @@ void loop() {
           }
         yield();
         unsigned long secsSince1900 = timecor + (millis()/1000);
-
         srlcd.setCursor(18,0);
         switch(get_signal_qua(6, 0))
         {
@@ -683,16 +663,19 @@ void loop() {
             i-=24;
           }
         if ( i < 10 ) {
+            // In the first 10 minutes of each hour, we'll want a leading '0'
             srlcd.print('0');
           }
-        srlcd.print(i); 
+        srlcd.print(i);
         srlcd.print(':');
         if ( numberOfMinutes(epoch) < 10 ) {
+            // In the first 10 minutes of each hour, we'll want a leading '0'
             srlcd.print('0');
           }
-        srlcd.print(numberOfMinutes(epoch)); 
+        srlcd.print(numberOfMinutes(epoch));
         srlcd.print(':');
         if ( numberOfSeconds(epoch) < 10 ) {
+            // In the first 10 seconds of each minute, we'll want a leading '0'
             srlcd.print('0');
           }
         srlcd.print(numberOfSeconds(epoch));
@@ -700,64 +683,12 @@ void loop() {
     loop_i++;
   }
 
-int splint_rtoa(char const *rx, int rs, int rc, char **name_mas, float *dat_mas)
-//rx входная строка, rs колличество символов в строке, rc количество параметров
-{
-	int i, r, mix = 0;
-	char tmp[20];
-	if(rs < strlen(rx)) {
-	    rs=strlen(rx);}
-	for (i = 0; i < rc; i++)
-	{
-		yield();
-		if (name_mas[i] != NULL)
-		{
-			for (r = mix; r < rs; r++)
-			{
-				if(r>=rs || rx[r] == ';' || rx[r] == '\0')
-				{
-					return i;
-				}
-				else if (rx[r] == ':')
-				{
-					name_mas[i][r-mix] = '\0';
-					mix = r + 1;
-					break;
-				}
-				else
-				{
-					name_mas[i][r - mix] = rx[r];
-				}
-			}
-			for (int f=0; f<20; f++) {
-			    tmp[f]='\0';}
-			for (r = mix; r < rs; r++)
-			{
-				
-				if(r>=rs || rx[r] == ';' || rx[r] == '\0')
-				{
-					return i;
-				}
-				else if (rx[r] == ' ' || r>=rs || rx[r] == ';' || rx[r] == '\0')
-				{
-					tmp[r - mix] = '\0';
-					mix = r + 1;
-					break;
-				}
-				else
-				{
-					tmp[r - mix] = rx[r];
-				}
-			}
-			dat_mas[i] = atof(tmp);
-		}
-	}
-	return rc;
-}
-
 bool parse_A1DSP(char* tempstr) {
     //rx входная строка, rs колличество символов в строке, rc количество параметров
 	
+    /*srlcd.setCursor(OFFSET,0);
+    srlcd.print("ПАРС А1ПРО");
+	delay(1000);*/
     bmp_ok=false;
     lux_ok=false;
     dht_ok=false;
@@ -867,22 +798,6 @@ bool parse_A1DSP(char* tempstr) {
 	
 }
 
-void bzero(char *mas, unsigned int bits){
-    for(unsigned int u=0; u < bits; u++)
-    {
-        mas[u]='\0';
-    }
-    return;
-  }
-
-void bfoll(char *mas, unsigned int start, unsigned int bits, char sym){
-    for(unsigned int u=start; u < bits; u++)
-    {
-        mas[u]=sym;
-    }
-    return;
-}
-
 unsigned long sendNTPpacket(IPAddress& address){
     Serial.println("[NTP]sending NTP packet...");
     // set all bytes in the buffer to 0
@@ -914,7 +829,7 @@ void httpRequest() {
     // if there's a successful connection:
     if (client.connect("dev.a1mc.ru", 80)) {
         //Serial.println("connecting...");
-        // send the HTTP PUT request:
+        // send the HTTP GET request:
         client.println("GET /kd1.php HTTP/1.1");
         client.println("Host: dev.a1mc.ru");
         client.println("User-Agent: ESP_DISP/1.1");
@@ -934,45 +849,51 @@ bool loadConfig() {
       }
 
     size_t size = configFile.size();
-    if (size > 1024) {
+    if (size > 512) {
+		configFile.close();
         return false;
       }
 
-    std::unique_ptr<char[]> buf(new char[size]);
-	configFile.readBytes(buf.get(), size);
 
-    StaticJsonBuffer<200> jsonBuffer;
-    JsonObject &json = jsonBuffer.parseObject(buf.get());
+    StaticJsonBuffer<512> jsonBuffer;
+    JsonObject &json = jsonBuffer.parseObject(configFile);
+	
+	
 
     if (!json.success()) {
         return false;
       }
 
+    // const char* serverName = json["serverName"];
     if(json["fw_ver"]==NULL) {
         return false;}
     if(atoi(json["fw_ver"]) != fw_ver){
 		return false;
     }
-    
-    lcdbacklset(atoi(json["lcdbackl"]));
+    //data_get = atoi(json["serial_data_read"]);
+    //narodmon_send = atoi(json["narodmon_send"]);
+	
+    lcdbacklset(tobool(json["lcdbackl"]));
+
+	 
     return true;
   }
 
 bool saveConfig() {
-    StaticJsonBuffer<200> jsonBuffer;
+    StaticJsonBuffer<512> jsonBuffer;
     JsonObject &json = jsonBuffer.createObject();
-    json["fw_ver"] = fw_ver;
-    int tmp=lcdbacklset();;
-    json["lcdbackl"] = tmp;
-    json["wname"] = wname;
-    json["wpass"] = wpass;
-    
     File configFile = SPIFFS.open("/config.json", "w");
     if (!configFile) {
         return false;
-      }
-
+    }
+    json["fw_ver"] = fw_ver;
+    json["lcdbackl"] = lcdbacklset();
+    json["wname"] = wname;
+    json["wpass"] = wpass;
+    //json["serial_data_read"] = data_get;
+    //json["narodmon_send"] = narodmon_send;
     json.printTo(configFile);
+	configFile.close();
     return true;
   }
   
@@ -988,7 +909,7 @@ bool A1_data_pr(char *s, unsigned int s_size) {
 	if(idht_ok == true) {
 	sprintf(s,
 			"%s DTMP:%f"
-			  " DHUM:%f", s, idht_temp, idht_hum);
+			  " DHUM:%f", s, tidht_temp, tidht_hum);
 	}
   sprintf(s, "%s ;\n\0", s);
   return 0;
@@ -999,7 +920,10 @@ bool NAROD_data_send(char *str,short int size) {
   bzero(str, size);
   //tidht_temp=idht_temp;
   //tidht_hum=idht_hum;
-
+  /*if(loop_redy == true){
+  tidht_temp=get_scs(rdtmp[TID], RCOL);
+  tidht_hum=get_scs(rdtmp[HID], RCOL);}
+*/
   byte bmac[6];
   WiFi.macAddress(bmac);
   bzero(mac, 20);
@@ -1066,7 +990,14 @@ bool parse_NAROD(char* tempstr) {
     bool data_rec=false;
  	int st_col = 0;
  	
- 	for(int i =0; i<strlen(tempstr); i++)
+ 	
+        /*int tst=strlen(tempstr);
+ 	char tstrr[] = ",tm=2,ts=3\0\0";
+        for(int t = tst; t < tst+strlen(tstrr); t++){
+                tempstr[t]=tstrr[t-tst];
+        }
+        */
+	for(int i =0; i<strlen(tempstr); i++)
 	{
 		if(tempstr[i] == '=') {
 			st_col++; }
@@ -1077,8 +1008,14 @@ bool parse_NAROD(char* tempstr) {
 	yield();
 	int col=st_col;
     int i = 0;
-
+    
+    //srlcd.setCursor(0,1);
+    //srlcd.print(tempstr);
     int *dat_mas = (int *)malloc(st_col * sizeof(int));
+/*    for(i=0 ; i < st_col; i ++)
+    {
+	dat_mas[i]=0;
+    }*/
 	char **name_mas = (char **)malloc(st_col * sizeof(char *));
 	for(i = 0; i < st_col; i++) {
 		name_mas[i] = (char *)malloc(15 * sizeof(char));
@@ -1087,18 +1024,29 @@ bool parse_NAROD(char* tempstr) {
 	for(int t = 0; t < (strlen(tempstr)-1); t++){
 		tempstr[t]=tempstr[t+1];
 	}
-
+	//delay(1000);
+	//srlcd.setCursor(0,1);
+	//srlcd.print(tempstr);
 	tempstr[strlen(tempstr)-1]='\0';
 	splint_narod(tempstr, strlen(tempstr), col, name_mas, dat_mas);
+	//return col;
 	yield();
 	if(col > 0) {
 		data_rec=true;
 		for(int ilp = 0; ilp < col; ilp++) {
 			yield();
+			//tempstr += String("\nName = ") + name_mas[ilp] + String(" data = ") + dat_mas[ilp];
 			if (strcmp(name_mas[ilp], "lcdbackl") == 0) {
 				lcdbacklset(dat_mas[ilp]);
 				saveConfig();
-				}
+			}
+			/*
+			else if (strcmp(name_mas[ilp], "MQV5") == 0)  {
+				mqv5=dat_mas[ilp];
+			}
+			else if (strcmp(name_mas[ilp], "MQV") == 0)  {
+				mqv=dat_mas[ilp];
+			}*/		
 			}	
 	}
 	else {
@@ -1111,56 +1059,6 @@ bool parse_NAROD(char* tempstr) {
 	free(name_mas);
 
 	return data_rec;
-}
-
-int splint_narod(char const *rx, int rs, int rc, char **name_mas, int *dat_mas){
-//rx входная строка, rs колличество символов в строке, rc количество параметров
-int i, r, mix = 0;
-char tmp[20];
-if(rs < strlen(rx)) {
-    rs=strlen(rx);}
-for (i = 0; i < rc; i++)
-{
-		for (r = mix; r < rs; r++)
-		{
-			if(r>=rs || rx[r] == '\0')
-			{
-				return i;
-			}
-			else if (rx[r] == '=')
-			{
-				name_mas[i][r-mix] = '\0';
-				mix = r + 1;
-				break;
-			}
-			else
-			{
-				name_mas[i][r - mix] = rx[r];
-			}
-		}
-                for (int f=0; f<20; f++){
-                tmp[f]='\0';}
-		for (r = mix; r < rs; r++)
-		{
-			
-			if(r>=rs || rx[r] == '\0')
-			{
-				return i;
-			}
-			else if (rx[r] == ',' || r>=rs || rx[r] == '\0')
-			{
-				tmp[r - mix] = '\0';
-				mix = r + 1;
-				break;
-			}
-			else
-			{
-				tmp[r - mix] = rx[r];
-			}
-		}
-		dat_mas[i] = atoi(tmp);
-}
-return rc;
 }
 
 bool lcdbacklset(int bkl){
