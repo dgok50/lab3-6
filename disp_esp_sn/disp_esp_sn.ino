@@ -36,7 +36,7 @@
 
 const char *HOST_NAME = "DISP_ESP";
 const char *endl = "\n";
-const int fw_ver = 29;
+const int fw_ver = 31;
 #define dataPin 12
 #define clockPin 14
 #define enablePin 13
@@ -64,8 +64,6 @@ unsigned int loop_i = 0, i=0, loop_u = 0, s_i=0;
 
 
 unsigned long tfs = 0, timecor;
-volatile unsigned long rnd = 0, loop_g = 0;
-bool loop_redy = false;
 
 volatile bool bmp_ok=false, lux_ok=false, dht_ok=false, data_rec=false, idht_ok=false;
 volatile bool ispmode = false, drq = false, send_data = false, repsend = false, s_redy=false;
@@ -335,7 +333,7 @@ void setup() {
          "Last Reply: %s\n", HOST_NAME, fw_ver/100, (fw_ver%100)/10, fw_ver%10,
 		 mac, ESP.getSketchSize(), ESP.getSketchMD5().c_str(), ESP.getCpuFreqMHz(),
 		 ESP.getFreeHeap(), esp_vcc, idht_ok, idht_hum, 0x25, idht_temp, 0xB0,
-		 dht.computeHeatIndex(idht_temp, idht_hum, false), 0xB0, loop_redy, tidht_hum,
+		 dht.computeHeatIndex(idht_temp, idht_hum, false), 0xB0, s_redy, tidht_hum,
 		 0x25, tidht_temp, 0xB0, dht.computeHeatIndex(tidht_temp, tidht_hum, false),
 		 0xB0, numberOfHours(tfs), numberOfMinutes(tfs), numberOfSeconds(tfs), elapsedDays(tfs),
 		 ESP.getChipId(), ESP.getFlashChipId(), ESP.getFlashChipRealSize(), ESP.getFlashChipSize(), ESP.getFlashChipSpeed(),
@@ -655,8 +653,10 @@ void loop() {
         const unsigned long seventyYears = 2208988800UL;
         // subtract seventy years:
         unsigned long epoch = secsSince1900 - seventyYears;
-
-        srlcd.setCursor(6,0);
+        srlcd.setCursor(0,0);
+		srlcd.print(dht.computeHeatIndex(idht_temp, idht_hum, false));
+        srlcd.setCursor(5,0);
+		srlcd.print(" ");
         i=numberOfHours(epoch);
         i+=3;
         if(i>23) {
@@ -864,14 +864,11 @@ bool loadConfig() {
         return false;
       }
 
-    // const char* serverName = json["serverName"];
     if(json["fw_ver"]==NULL) {
         return false;}
     if(atoi(json["fw_ver"]) != fw_ver){
 		return false;
     }
-    //data_get = atoi(json["serial_data_read"]);
-    //narodmon_send = atoi(json["narodmon_send"]);
 	
     lcdbacklset(tobool(json["lcdbackl"]));
 
@@ -890,8 +887,6 @@ bool saveConfig() {
     json["lcdbackl"] = lcdbacklset();
     json["wname"] = wname;
     json["wpass"] = wpass;
-    //json["serial_data_read"] = data_get;
-    //json["narodmon_send"] = narodmon_send;
     json.printTo(configFile);
 	configFile.close();
     return true;
@@ -918,12 +913,7 @@ bool A1_data_pr(char *s, unsigned int s_size) {
 bool NAROD_data_send(char *str,short int size) {
   WiFiClient client;
   bzero(str, size);
-  //tidht_temp=idht_temp;
-  //tidht_hum=idht_hum;
-  /*if(loop_redy == true){
-  tidht_temp=get_scs(rdtmp[TID], RCOL);
-  tidht_hum=get_scs(rdtmp[HID], RCOL);}
-*/
+  
   byte bmac[6];
   WiFi.macAddress(bmac);
   bzero(mac, 20);
@@ -960,7 +950,7 @@ bool NAROD_data_send(char *str,short int size) {
   if(nreplyb[0] == 'O' && nreplyb[1] == 'K') {
 	return true;
   }
-  else if(nreplyb[0]== '#') {
+  else if(nreplyb[0] == '#') {
 	  parse_NAROD(nreplyb);
 		return true;  
   }
@@ -990,14 +980,7 @@ bool parse_NAROD(char* tempstr) {
     bool data_rec=false;
  	int st_col = 0;
  	
- 	
-        /*int tst=strlen(tempstr);
- 	char tstrr[] = ",tm=2,ts=3\0\0";
-        for(int t = tst; t < tst+strlen(tstrr); t++){
-                tempstr[t]=tstrr[t-tst];
-        }
-        */
-	for(int i =0; i<strlen(tempstr); i++)
+ 	for(int i =0; i<strlen(tempstr); i++)
 	{
 		if(tempstr[i] == '=') {
 			st_col++; }
@@ -1009,13 +992,7 @@ bool parse_NAROD(char* tempstr) {
 	int col=st_col;
     int i = 0;
     
-    //srlcd.setCursor(0,1);
-    //srlcd.print(tempstr);
     int *dat_mas = (int *)malloc(st_col * sizeof(int));
-/*    for(i=0 ; i < st_col; i ++)
-    {
-	dat_mas[i]=0;
-    }*/
 	char **name_mas = (char **)malloc(st_col * sizeof(char *));
 	for(i = 0; i < st_col; i++) {
 		name_mas[i] = (char *)malloc(15 * sizeof(char));
@@ -1024,34 +1001,22 @@ bool parse_NAROD(char* tempstr) {
 	for(int t = 0; t < (strlen(tempstr)-1); t++){
 		tempstr[t]=tempstr[t+1];
 	}
-	//delay(1000);
-	//srlcd.setCursor(0,1);
-	//srlcd.print(tempstr);
 	tempstr[strlen(tempstr)-1]='\0';
 	splint_narod(tempstr, strlen(tempstr), col, name_mas, dat_mas);
-	//return col;
 	yield();
 	if(col > 0) {
 		data_rec=true;
 		for(int ilp = 0; ilp < col; ilp++) {
 			yield();
-			//tempstr += String("\nName = ") + name_mas[ilp] + String(" data = ") + dat_mas[ilp];
 			if (strcmp(name_mas[ilp], "lcdbackl") == 0) {
 				lcdbacklset(dat_mas[ilp]);
 				saveConfig();
-			}
-			/*
-			else if (strcmp(name_mas[ilp], "MQV5") == 0)  {
-				mqv5=dat_mas[ilp];
-			}
-			else if (strcmp(name_mas[ilp], "MQV") == 0)  {
-				mqv=dat_mas[ilp];
-			}*/		
-			}	
+			}		
+		}	
 	}
 	else {
 		data_rec=false;
-		}
+	}
 	free(dat_mas);
 	for(i=0; i < st_col; i++) {
 		free(name_mas[i]);
@@ -1062,7 +1027,7 @@ bool parse_NAROD(char* tempstr) {
 }
 
 bool lcdbacklset(int bkl){
-switch (bkl) {
+ switch (bkl) {
 	case 1:
 		lcdbackl=true;
 		srlcd.backlightOn();
@@ -1071,8 +1036,8 @@ switch (bkl) {
 		srlcd.backlightOff();
 		lcdbackl=false;
 		break;
-   }
-return lcdbackl;
+		}
+ return lcdbackl;
 }
 
 bool lcdbacklset(){

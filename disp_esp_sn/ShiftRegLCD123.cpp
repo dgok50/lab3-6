@@ -469,7 +469,7 @@ void ShiftRegLCD123::send(uint8_t value, uint8_t mode)
       // Nibble + LCD enable
       shiftOut1wire (_srdata_pin, direction, nibble1);
       // enable pulse must be >450ns  
-      delayMicroseconds(1);
+      delayMicroseconds(2);
       // same nibble again without LCD enable
       shiftOut1wire (_srdata_pin, direction, nibble2);
     } else {
@@ -477,7 +477,7 @@ void ShiftRegLCD123::send(uint8_t value, uint8_t mode)
       // LCD ENABLE PULSE and / or shiftregister latch
       digitalWrite( _enable_pin, HIGH );
       // enable pulse must be >450ns  
-      delayMicroseconds(1);
+      delayMicroseconds(2);
       digitalWrite( _enable_pin, LOW );
     }
     if (_numwires == 3 && _scheme != SRLCD123)
@@ -496,7 +496,7 @@ void ShiftRegLCD123::send(uint8_t value, uint8_t mode)
   // commands need > 37us to settle (for normal LCD with clock = 270 kHz)
   // Since LCD's may be slow (190 kHz clock = 53 us), we'll wait 60 us
   //delayMicroseconds(60);
-  delay(0.060);
+  delay(0.1);
 
 }
 

@@ -1,0 +1,40 @@
+[main]
+db_name                        = main
+txt_dir                        = /var/www
+key                            = 2434219
+salt                           = mu*
+debug                          = 0
+
+
+[t_sensors]
+sens0                          = 28-000003ab0be1
+sens0_name                     = home231
+sens0_place                    = home
+#sens1                          = 28-0000040c0227
+#sens1_name                     = streed
+#sens1_place                    = out
+sens_col                       = 1
+
+
+[dev]
+device0_place                  = home
+device0_name                   = light_1
+device0_port                   = 1
+device0_type                   = 1
+device1_place                  = home
+device1_name                   = water_1
+device1_port                   = 5
+device1_type                   = 2
+device2_place                  = home
+device2_name                   = water_2
+device2_port                   = 6
+device2_type                   = 2
+device_col                     = 3
+
+
+[count]
+counter0                       = 0
+counter1                       = 3968
+counter2                       = 8586
+
+
